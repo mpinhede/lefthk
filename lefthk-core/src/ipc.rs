@@ -73,14 +73,12 @@ async fn read_from_pipe(pipe_file: &Path, tx: &mpsc::UnboundedSender<NormalizedC
         let mut lines = BufReader::new(file).lines();
 
         while let Ok(line) = lines.next_line().await {
-            if let Some(content) = line {
-                if let Ok(normalized_command) = NormalizedCommand::try_from(content) {
-                    if command::denormalize(&normalized_command.clone()).is_ok() {
-                        if let Err(err) = tx.send(normalized_command) {
-                            tracing::error!("{}", err);
-                        }
-                    }
-                }
+            if let Some(content) = line
+                && let Ok(normalized_command) = NormalizedCommand::try_from(content)
+                && command::denormalize(&normalized_command.clone()).is_ok()
+                && let Err(err) = tx.send(normalized_command)
+            {
+                tracing::error!("{}", err);
             }
         }
     }

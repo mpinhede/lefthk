@@ -78,10 +78,10 @@ pub fn load() -> Result<Config> {
 fn propagate_exit_chord(chords: Vec<&mut Keybind>, exit_chord: Option<&Keybind>) {
     for chord in chords {
         if let Command::Chord(children) = &mut chord.command {
-            if !children.iter().any(|kb| kb.command == Command::ExitChord) {
-                if let Some(exit_chord) = exit_chord {
-                    children.push(exit_chord.clone());
-                }
+            if !children.iter().any(|kb| kb.command == Command::ExitChord)
+                && let Some(exit_chord) = exit_chord
+            {
+                children.push(exit_chord.clone());
             }
             let parent_exit_chord = children
                 .iter()
