@@ -7,4 +7,6 @@ pub struct Keybind {
     pub command: NormalizedCommand,
     pub modifier: Vec<String>,
     pub key: String,
+    pub on_release: bool,
+    pub already_pressed: bool,
 }

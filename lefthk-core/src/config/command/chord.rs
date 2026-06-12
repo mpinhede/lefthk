@@ -55,6 +55,8 @@ mod tests {
             command: Reload::new().normalize(),
             modifier: vec![],
             key: String::new(),
+            on_release: false,
+            already_pressed: false,
         }]);
 
         let normalized = command.normalize();

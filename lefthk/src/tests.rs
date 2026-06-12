@@ -124,6 +124,8 @@ Config(
             "Shift",
         ],
         key: "c",
+        on_release: false,
+        already_pressed: false,
     ),
 ])"#
                 .to_string()
@@ -144,10 +146,52 @@ Config(
             "Mod4",
         ],
         key: "c",
+        on_release: false,
+        already_pressed: false,
     ),
 ])"#
                 .to_string()
             )
         );
+    }
+
+    #[test]
+    fn parse_on_release_config() {
+        let config = r#"#![enable(implicit_some)]
+Config(
+    default_modifier: ["Mod4", "Shift"],
+    keybinds: [
+        Keybind(
+            command: Execute("st -e htop"),
+            key: Key("c"),
+        ),
+        Keybind(
+            command: Execute("pkill htop"),
+            key: Key("c"),
+            on_release: true,
+        ),
+    ]
+)"#;
+        let conf = Cfg::try_from(config.to_string());
+        assert!(conf.is_ok());
+        let conf = conf.unwrap();
+        assert_eq!(conf.default_modifier.len(), 2);
+        assert_eq!(
+            conf.default_modifier,
+            vec!["Mod4".to_string(), "Shift".to_string()]
+        );
+        let conf_mapped = conf.mapped_bindings();
+        let on_press_keybind = conf_mapped.first().unwrap();
+        assert_eq!(on_press_keybind.modifier.len(), 2);
+        assert_eq!(on_press_keybind.modifier, conf.default_modifier);
+        assert_eq!(on_press_keybind.key, "c");
+        assert_eq!(on_press_keybind.on_release, false);
+        assert_eq!(on_press_keybind.already_pressed, false);
+        let on_release_keybind = conf_mapped.last().unwrap();
+        assert_eq!(on_release_keybind.modifier.len(), 2);
+        assert_eq!(on_release_keybind.modifier, conf.default_modifier);
+        assert_eq!(on_release_keybind.key, "c");
+        assert_eq!(on_release_keybind.on_release, true);
+        assert_eq!(on_release_keybind.already_pressed, false);
     }
 }
