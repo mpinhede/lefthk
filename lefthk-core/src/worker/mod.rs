@@ -108,9 +108,9 @@ impl Worker {
                     companion_keybind.already_pressed = true;
                 }
                 let result_command = command::denormalize(&keybind.command);
-                match result_command {
-                    Ok(command) => command.execute(self)?,
-                    Err(e) => return Err(e),
+                {
+                    let command = result_command?;
+                    command.execute(self)?;
                 }
             }
         } else if let Some(keybind) = matching_keybinds.1

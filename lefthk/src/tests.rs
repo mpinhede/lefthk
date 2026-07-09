@@ -185,13 +185,13 @@ Config(
         assert_eq!(on_press_keybind.modifier.len(), 2);
         assert_eq!(on_press_keybind.modifier, conf.default_modifier);
         assert_eq!(on_press_keybind.key, "c");
-        assert_eq!(on_press_keybind.on_release, false);
-        assert_eq!(on_press_keybind.already_pressed, false);
+        assert!(!on_press_keybind.on_release);
+        assert!(!on_press_keybind.already_pressed);
         let on_release_keybind = conf_mapped.last().unwrap();
         assert_eq!(on_release_keybind.modifier.len(), 2);
         assert_eq!(on_release_keybind.modifier, conf.default_modifier);
         assert_eq!(on_release_keybind.key, "c");
-        assert_eq!(on_release_keybind.on_release, true);
-        assert_eq!(on_release_keybind.already_pressed, false);
+        assert!(on_release_keybind.on_release);
+        assert!(!on_release_keybind.already_pressed);
     }
 }
