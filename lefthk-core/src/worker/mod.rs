@@ -131,8 +131,6 @@ impl Worker {
             && detectable_autorepeat
         {
             sf_keybind.already_pressed = true;
-        } else {
-            return Err(LeftError::CommandNotFound);
         }
         Ok(())
     }
