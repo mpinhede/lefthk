@@ -25,6 +25,7 @@ pub struct StatefullKeybind {
 }
 
 impl StatefullKeybind {
+    #[must_use]
     pub fn new(keybind: Keybind) -> Self {
         Self {
             keybind,
