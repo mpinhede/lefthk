@@ -6,6 +6,7 @@ use crate::errors::{self, Error, LeftError};
 use crate::ipc::Pipe;
 use crate::xkeysym_lookup;
 use crate::xwrap::XWrap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use x11_dl::xlib;
 use xdg::BaseDirectories;
@@ -17,8 +18,23 @@ pub enum Status {
     Continue,
 }
 
+#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
+pub struct StatefullKeybind {
+    pub keybind: Keybind,
+    already_pressed: bool,
+}
+
+impl StatefullKeybind {
+    pub fn new(keybind: Keybind) -> Self {
+        Self {
+            keybind,
+            already_pressed: false,
+        }
+    }
+}
+
 pub struct Worker {
-    keybinds: Vec<Keybind>,
+    sf_keybinds: Vec<StatefullKeybind>,
     base_directory: BaseDirectories,
 
     pub xwrap: XWrap,
@@ -34,7 +50,7 @@ impl Worker {
     pub fn new(keybinds: Vec<Keybind>, base_directory: BaseDirectories) -> Self {
         Self {
             status: Status::Continue,
-            keybinds,
+            sf_keybinds: keybinds.into_iter().map(StatefullKeybind::new).collect(),
             base_directory,
             xwrap: XWrap::new(),
             children: Children::default(),
@@ -45,7 +61,7 @@ impl Worker {
     pub async fn event_loop(mut self) -> Status {
         let detectable_autorepeat = self.xwrap.set_detectable_auto_repeat();
         self.xwrap.get_modifier_mapping();
-        self.xwrap.grab_keys(&self.keybinds);
+        self.xwrap.grab_keys(&self.sf_keybinds);
         let mut pipe = self.get_pipe().await;
 
         while self.status == Status::Continue {
@@ -98,25 +114,23 @@ impl Worker {
     fn handle_key_press(&mut self, event: &xlib::XKeyEvent, detectable_autorepeat: bool) -> Error {
         let key = self.xwrap.keycode_to_keysym(event.keycode)?;
         let mask = xkeysym_lookup::clean_mask(event.state);
-        let matching_keybinds = self.get_keybind_pair_from_key_mod((mask, key));
-        if let Some(keybind) = matching_keybinds.0 {
-            if !keybind.already_pressed {
-                if let Some(companion_keybind) = matching_keybinds.1
+        let matching_sf_keybinds = self.get_sf_keybind_pair_from_key_mod((mask, key));
+        if let Some(sf_keybind) = matching_sf_keybinds.0 {
+            if !sf_keybind.already_pressed {
+                if let Some(companion_sf_keybind) = matching_sf_keybinds.1
                     && detectable_autorepeat
                 {
-                    keybind.already_pressed = true;
-                    companion_keybind.already_pressed = true;
+                    sf_keybind.already_pressed = true;
+                    companion_sf_keybind.already_pressed = true;
                 }
-                let result_command = command::denormalize(&keybind.command);
-                {
-                    let command = result_command?;
-                    command.execute(self)?;
-                }
+                let result_command = command::denormalize(&sf_keybind.keybind.command);
+                let command = result_command?;
+                command.execute(self)?;
             }
-        } else if let Some(keybind) = matching_keybinds.1
+        } else if let Some(sf_keybind) = matching_sf_keybinds.1
             && detectable_autorepeat
         {
-            keybind.already_pressed = true;
+            sf_keybind.already_pressed = true;
         } else {
             return Err(LeftError::CommandNotFound);
         }
@@ -132,15 +146,17 @@ impl Worker {
             let key = self.xwrap.keycode_to_keysym(event.keycode)?;
             let mask = xkeysym_lookup::clean_mask(event.state);
             let mut commands = Vec::new();
-            let keybind_pair_list = self.get_keybind_on_release((mask, key));
+            let sf_keybind_pair_list = self.get_sf_keybind_on_release((mask, key));
             // For each keybind, set already_pressed to false and build a list of command
-            for keybind_pair in keybind_pair_list {
-                if let Some(on_press_keybind) = keybind_pair.0 {
-                    on_press_keybind.already_pressed = false;
+            for sf_keybind_pair in sf_keybind_pair_list {
+                if let Some(on_press_sf_keybind) = sf_keybind_pair.0 {
+                    on_press_sf_keybind.already_pressed = false;
                 }
-                if let Some(on_release_keybind) = keybind_pair.1 {
-                    on_release_keybind.already_pressed = false;
-                    if let Ok(command) = command::denormalize(&on_release_keybind.command) {
+                if let Some(on_release_sf_keybind) = sf_keybind_pair.1 {
+                    on_release_sf_keybind.already_pressed = false;
+                    if let Ok(command) =
+                        command::denormalize(&on_release_sf_keybind.keybind.command)
+                    {
                         commands.push(command);
                     }
                 }
@@ -160,24 +176,24 @@ impl Worker {
     }
 
     /// Get keybind pair (on press/on release) for given key/mod combinaison. Will only return one pair .
-    fn get_keybind_pair_from_key_mod(
+    fn get_sf_keybind_pair_from_key_mod(
         &mut self,
         mask_key_pair: (u32, u32),
-    ) -> (Option<&mut Keybind>, Option<&mut Keybind>) {
-        let keybinds = if let Some(keybinds) = self.chord_ctx.keybinds.as_mut() {
-            keybinds
+    ) -> (Option<&mut StatefullKeybind>, Option<&mut StatefullKeybind>) {
+        let sf_keybinds = if let Some(sf_keybinds) = self.chord_ctx.sf_keybinds.as_mut() {
+            sf_keybinds
         } else {
-            &mut self.keybinds
+            &mut self.sf_keybinds
         };
         let mut matching_keybinds = (None, None);
-        for keybind in keybinds.iter_mut() {
-            if let Some(key) = xkeysym_lookup::into_keysym(&keybind.key) {
-                let mask = xkeysym_lookup::into_modmask(&keybind.modifier);
+        for sf_keybind in sf_keybinds.iter_mut() {
+            if let Some(key) = xkeysym_lookup::into_keysym(&sf_keybind.keybind.key) {
+                let mask = xkeysym_lookup::into_modmask(&sf_keybind.keybind.modifier);
                 if mask_key_pair == (mask, key) {
-                    if keybind.on_release {
-                        matching_keybinds.1 = Some(keybind);
+                    if sf_keybind.keybind.on_release {
+                        matching_keybinds.1 = Some(sf_keybind);
                     } else {
-                        matching_keybinds.0 = Some(keybind);
+                        matching_keybinds.0 = Some(sf_keybind);
                     }
                 }
             }
@@ -186,26 +202,26 @@ impl Worker {
     }
 
     /// Get all keybinds that contains provided modifier OR key. Take modifier mask as parameter.
-    fn get_keybind_pair_list_from_key_mod(
+    fn get_sf_keybind_pair_list_from_key_mod(
         &mut self,
         optional_mask: Option<u32>,
         optional_key: Option<u32>,
-    ) -> Vec<(Option<&mut Keybind>, Option<&mut Keybind>)> {
-        let keybinds = if let Some(keybinds) = self.chord_ctx.keybinds.as_mut() {
-            keybinds
+    ) -> Vec<(Option<&mut StatefullKeybind>, Option<&mut StatefullKeybind>)> {
+        let sf_keybinds = if let Some(sf_keybinds) = self.chord_ctx.sf_keybinds.as_mut() {
+            sf_keybinds
         } else {
-            &mut self.keybinds
+            &mut self.sf_keybinds
         };
         // define a hashmap to store matching items so we don't need to double loop
         let mut result = HashMap::new();
-        for keybind in keybinds.iter_mut() {
+        for sf_keybind in sf_keybinds.iter_mut() {
             let mut is_match = false;
             if let Some(mask) = optional_mask {
-                let keybind_mask = xkeysym_lookup::into_modmask(&keybind.modifier);
+                let keybind_mask = xkeysym_lookup::into_modmask(&sf_keybind.keybind.modifier);
                 // consider keybind matches if its mask contains provided mask
                 is_match = is_match || (mask & keybind_mask != 0);
             }
-            if let Some(keybind_key) = xkeysym_lookup::into_keysym(&keybind.key)
+            if let Some(keybind_key) = xkeysym_lookup::into_keysym(&sf_keybind.keybind.key)
                 && let Some(key) = optional_key
             {
                 // consider keybind matches if its key matches provided key
@@ -214,13 +230,13 @@ impl Worker {
             if is_match {
                 // Store keybind in hashmap with entry name being key and mod concat
                 // This way it's easier to add on_press/on_release counterpart
-                let entry_name_mod_part = keybind.modifier.join("-");
-                let entry_name = format!("{entry_name_mod_part}{0}", keybind.key);
+                let entry_name_mod_part = sf_keybind.keybind.modifier.join("-");
+                let entry_name = format!("{entry_name_mod_part}{0}", sf_keybind.keybind.key);
                 let entry = result.entry(entry_name).or_insert((None, None));
-                if keybind.on_release {
-                    entry.1 = Some(keybind);
+                if sf_keybind.keybind.on_release {
+                    entry.1 = Some(sf_keybind);
                 } else {
-                    entry.0 = Some(keybind);
+                    entry.0 = Some(sf_keybind);
                 }
             }
         }
@@ -232,11 +248,11 @@ impl Worker {
         return_vec
     }
 
-    fn get_keybind_on_release(
+    fn get_sf_keybind_on_release(
         &mut self,
         mask_key_pair: (u32, u32),
-    ) -> Vec<(Option<&mut Keybind>, Option<&mut Keybind>)> {
-        let mut keybinds_with_mod;
+    ) -> Vec<(Option<&mut StatefullKeybind>, Option<&mut StatefullKeybind>)> {
+        let mut sf_keybinds_with_mod;
         // In case modifier get released before key:
         // We receive a release event with 'key' containing the released modifier keycode.
         // So we check if released key is a modifier
@@ -244,25 +260,26 @@ impl Worker {
         if let Some(key_mask) =
             xkeysym_lookup::mask_from_keysym(mask_key_pair.1, &self.xwrap.modifier_mapping)
         {
-            keybinds_with_mod = self.get_keybind_pair_list_from_key_mod(Some(key_mask), None);
+            sf_keybinds_with_mod = self.get_sf_keybind_pair_list_from_key_mod(Some(key_mask), None);
         } else {
-            keybinds_with_mod =
-                self.get_keybind_pair_list_from_key_mod(None, Some(mask_key_pair.1));
+            sf_keybinds_with_mod =
+                self.get_sf_keybind_pair_list_from_key_mod(None, Some(mask_key_pair.1));
         }
-        let keybind_vec: Vec<(Option<&mut Keybind>, Option<&mut Keybind>)> = keybinds_with_mod
-            .drain(..)
-            // Only keep keybinds pair that have a on_release element
-            .filter(|(_press_keybind, release_keybind)| release_keybind.is_some())
-            // Only keep keybinds that are currently pressed
-            .filter(|(_press_keybind, release_keybind)| {
-                if let Some(kb) = release_keybind {
-                    kb.already_pressed
-                } else {
-                    false
-                }
-            })
-            .collect();
-        keybind_vec
+        let sf_keybind_vec: Vec<(Option<&mut StatefullKeybind>, Option<&mut StatefullKeybind>)> =
+            sf_keybinds_with_mod
+                .drain(..)
+                // Only keep keybinds pair that have a on_release element
+                .filter(|(_press_keybind, release_keybind)| release_keybind.is_some())
+                // Only keep keybinds that are currently pressed
+                .filter(|(_press_keybind, release_keybind)| {
+                    if let Some(kb) = release_keybind {
+                        kb.already_pressed
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+        sf_keybind_vec
     }
 
     fn handle_mapping_notify(&mut self, event: &mut xlib::XMappingEvent) -> Error {

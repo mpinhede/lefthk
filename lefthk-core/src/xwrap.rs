@@ -1,5 +1,5 @@
-use crate::config::Keybind;
 use crate::errors::{self, Error, LeftError};
+use crate::worker::StatefullKeybind;
 use crate::xkeysym_lookup;
 use std::collections::HashMap;
 use std::future::Future;
@@ -132,16 +132,16 @@ impl XWrap {
     }
 
     /// Grabs a list of keybindings.
-    pub fn grab_keys(&self, keybinds: &[Keybind]) {
+    pub fn grab_keys(&self, sf_keybinds: &[StatefullKeybind]) {
         // Cleanup key grabs.
         unsafe {
             (self.xlib.XUngrabKey)(self.display, xlib::AnyKey, xlib::AnyModifier, self.root);
         }
 
         // Grab all the key combos from the config file.
-        for kb in keybinds {
-            if let Some(keysym) = xkeysym_lookup::into_keysym(&kb.key) {
-                let modmask = xkeysym_lookup::into_modmask(&kb.modifier);
+        for sf_kb in sf_keybinds {
+            if let Some(keysym) = xkeysym_lookup::into_keysym(&sf_kb.keybind.key) {
+                let modmask = xkeysym_lookup::into_modmask(&sf_kb.keybind.modifier);
                 self.grab_key(self.root, keysym, modmask);
             }
         }

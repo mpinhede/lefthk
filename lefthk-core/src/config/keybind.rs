@@ -9,5 +9,4 @@ pub struct Keybind {
     pub key: String,
     #[serde(default)]
     pub on_release: bool,
-    pub already_pressed: bool,
 }

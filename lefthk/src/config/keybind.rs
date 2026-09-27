@@ -51,7 +51,7 @@ pub(crate) fn try_from(kb: Keybind, default_modifier: &[String]) -> Result<Vec<c
                     }
                 })
                 .flatten()
-                .collect();
+                .collect::<Vec<lefthk_core::config::Keybind>>();
 
             vec![(Box::new(command_mod::Chord::new(children)), key, on_release)]
         }
@@ -106,7 +106,6 @@ pub(crate) fn try_from(kb: Keybind, default_modifier: &[String]) -> Result<Vec<c
                 .unwrap_or_else(|| default_modifier.to_vec()),
             key: k.clone(),
             on_release: *o,
-            already_pressed: false,
         })
         .collect();
     Ok(keybinds)
